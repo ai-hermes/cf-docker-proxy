@@ -54,7 +54,7 @@ async function handleRequest(request) {
       }
     );
   }
-  const upstreamExtraHeader = extraHeaders[upstream] || {};
+  const upstreamExtraHeader = extraHeaders[url.hostname] || {};
   const isDockerHub = upstream == dockerHub;
   const authorization = request.headers.get("Authorization");
   if (url.pathname == "/v2/") {
@@ -62,6 +62,10 @@ async function handleRequest(request) {
     const headers = new Headers();
     if (authorization) {
       headers.set("Authorization", authorization);
+    }
+    // add upstream extra headers
+    for (const [key, value] of Object.entries(upstreamExtraHeader)) {
+      headers.set(key, value);
     }
     // check if need to authenticate
     const resp = await fetch(newUrl.toString(), {
@@ -77,8 +81,17 @@ async function handleRequest(request) {
   // get token
   if (url.pathname == "/v2/auth") {
     const newUrl = new URL(upstream + "/v2/");
+    const headers = new Headers();
+    if (authorization) {
+      headers.set("Authorization", authorization);
+    }
+    // add upstream extra headers
+    for (const [key, value] of Object.entries(upstreamExtraHeader)) {
+      headers.set(key, value);
+    }
     const resp = await fetch(newUrl.toString(), {
       method: "GET",
+      headers: headers,
       redirect: "follow",
     });
     if (resp.status !== 401) {
@@ -114,9 +127,14 @@ async function handleRequest(request) {
   }
   // foward requests
   const newUrl = new URL(upstream + url.pathname);
+  // copy existing headers and add upstream extra headers
+  const newHeaders = new Headers(request.headers);
+  for (const [key, value] of Object.entries(upstreamExtraHeader)) {
+    newHeaders.set(key, value);
+  }
   const newReq = new Request(newUrl, {
     method: request.method,
-    headers: request.headers,
+    headers: newHeaders,
     // don't follow redirect to dockerhub blob upstream
     redirect: isDockerHub ? "manual" : "follow",
   });
