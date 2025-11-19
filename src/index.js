@@ -57,6 +57,7 @@ async function handleRequest(request) {
   const upstreamExtraHeader = extraHeaders[url.hostname] || {};
   console.log('upstreamExtraHeader', upstreamExtraHeader)
   const isDockerHub = upstream == dockerHub;
+  const isGHCR = upstream.includes('gcr') || upstream.includes('ghcr');
   const authorization = request.headers.get("Authorization");
   if (url.pathname == "/v2/") {
     const newUrl = new URL(upstream + "/v2/");
@@ -137,7 +138,7 @@ async function handleRequest(request) {
     method: request.method,
     headers: newHeaders,
     // don't follow redirect to dockerhub blob upstream
-    redirect: isDockerHub ? "manual" : "follow",
+    redirect: isDockerHub || isGHCR ? "manual" : "follow",
   });
   const resp = await fetch(newReq);
   if (resp.status == 401) {
