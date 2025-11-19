@@ -1,8 +1,3 @@
-addEventListener("fetch", (event) => {
-  event.passThroughOnException();
-  event.respondWith(handleRequest(event.request));
-});
-
 const dockerHub = "https://registry-1.docker.io";
 
 const routes = {
@@ -174,3 +169,15 @@ function responseUnauthorized(url) {
     headers: headers,
   });
 }
+
+/*
+addEventListener("fetch", (event) => {
+  event.passThroughOnException();
+  event.respondWith(handleRequest(event.request));
+});
+*/
+export default {
+  fetch(request) {
+    return handleRequest(request)
+  },
+};
