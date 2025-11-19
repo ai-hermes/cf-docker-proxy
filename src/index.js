@@ -9,8 +9,8 @@ const routes = {
   ["k8s-gcr-" + CUSTOM_DOMAIN]: "https://k8s.gcr.io",
   // ["gcr-" + CUSTOM_DOMAIN]: "https://gcr.io",
   // ["ghcr-" + CUSTOM_DOMAIN]: "https://ghcr.io",
-  ["gcr-" + CUSTOM_DOMAIN]: "http://148.135.36.93",
-  ["ghcr-" + CUSTOM_DOMAIN]: "http://148.135.36.93",
+  ["gcr-" + CUSTOM_DOMAIN]: "https://cloudcone.20220625.xyz",
+  ["ghcr-" + CUSTOM_DOMAIN]: "https://cloudcone.20220625.xyz",
   ["cloudsmith-" + CUSTOM_DOMAIN]: "https://docker.cloudsmith.io",
   ["ecr-" + CUSTOM_DOMAIN]: "https://public.ecr.aws",
 
