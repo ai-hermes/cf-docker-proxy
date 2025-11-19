@@ -177,7 +177,8 @@ addEventListener("fetch", (event) => {
 });
 */
 export default {
-  fetch(request) {
+  async fetch(request, env, ctx) {
+    ctx.passThroughOnException();
     return handleRequest(request)
   },
 };
