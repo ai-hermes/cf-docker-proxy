@@ -1,8 +1,4 @@
-addEventListener("fetch", (event) => {
-  event.passThroughOnException();
-  event.respondWith(handleRequest(event.request));
-});
-
+const CUSTOM_DOMAIN = "cf.20220625.xyz"
 const dockerHub = "https://registry-1.docker.io";
 
 const routes = {
@@ -174,3 +170,16 @@ function responseUnauthorized(url) {
     headers: headers,
   });
 }
+
+/*
+addEventListener("fetch", (event) => {
+  event.passThroughOnException();
+  event.respondWith(handleRequest(event.request));
+});
+*/
+export default {
+  async fetch(request, env, ctx) {
+    ctx.passThroughOnException();
+    return handleRequest(request)
+  },
+};
