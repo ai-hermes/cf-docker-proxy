@@ -5,16 +5,28 @@ const routes = {
   // production
   ["docker-" + CUSTOM_DOMAIN]: dockerHub,
   ["quay-" + CUSTOM_DOMAIN]: "https://quay.io",
-  ["gcr-" + CUSTOM_DOMAIN]: "https://gcr.io",
-  ["k8s-gcr-" + CUSTOM_DOMAIN]: "https://k8s.gcr.io",
   ["k8s-" + CUSTOM_DOMAIN]: "https://registry.k8s.io",
-  ["ghcr-" + CUSTOM_DOMAIN]: "https://ghcr.io",
+  ["k8s-gcr-" + CUSTOM_DOMAIN]: "https://k8s.gcr.io",
+  // ["gcr-" + CUSTOM_DOMAIN]: "https://gcr.io",
+  // ["ghcr-" + CUSTOM_DOMAIN]: "https://ghcr.io",
+  ["gcr-" + CUSTOM_DOMAIN]: "http://148.135.36.93",
+  ["ghcr-" + CUSTOM_DOMAIN]: "http://148.135.36.93",
   ["cloudsmith-" + CUSTOM_DOMAIN]: "https://docker.cloudsmith.io",
   ["ecr-" + CUSTOM_DOMAIN]: "https://public.ecr.aws",
 
   // staging
   ["docker-staging-" + CUSTOM_DOMAIN]: dockerHub,
 };
+
+
+const extraHeaders = {
+  ["gcr-" + CUSTOM_DOMAIN] : {
+    "Host": "gcr.20220625.xyz"
+  },
+  ["ghcr-" + CUSTOM_DOMAIN] : {
+    "Host": "ghcr.20220625.xyz"
+  },
+}
 
 function routeByHosts(host) {
   if (host in routes) {
@@ -42,6 +54,7 @@ async function handleRequest(request) {
       }
     );
   }
+  const upstreamExtraHeader = extraHeaders[upstream] || {};
   const isDockerHub = upstream == dockerHub;
   const authorization = request.headers.get("Authorization");
   if (url.pathname == "/v2/") {
