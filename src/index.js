@@ -1,3 +1,4 @@
+const CUSTOM_DOMAIN = "cf.20220625.xyz"
 const dockerHub = "https://registry-1.docker.io";
 
 const routes = {
