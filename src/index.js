@@ -1,218 +1,179 @@
-const CUSTOM_DOMAIN = "cf.20220625.xyz"
+const CUSTOM_DOMAIN = "cf.20220625.xyz";
+
 const dockerHub = "https://registry-1.docker.io";
 
+// 路由映射：自定义子域名 → 上游 registry
 const routes = {
-  // production
   ["docker-" + CUSTOM_DOMAIN]: dockerHub,
   ["quay-" + CUSTOM_DOMAIN]: "https://quay.io",
   ["k8s-" + CUSTOM_DOMAIN]: "https://registry.k8s.io",
   ["k8s-gcr-" + CUSTOM_DOMAIN]: "https://k8s.gcr.io",
-  // ["gcr-" + CUSTOM_DOMAIN]: "https://gcr.io",
-  // ["ghcr-" + CUSTOM_DOMAIN]: "https://ghcr.io",
   ["gcr-" + CUSTOM_DOMAIN]: "https://cloudcone-gcr.20220625.xyz",
   ["ghcr-" + CUSTOM_DOMAIN]: "https://cloudcone-ghcr.20220625.xyz",
   ["cloudsmith-" + CUSTOM_DOMAIN]: "https://docker.cloudsmith.io",
   ["ecr-" + CUSTOM_DOMAIN]: "https://public.ecr.aws",
-
-  // staging
   ["docker-staging-" + CUSTOM_DOMAIN]: dockerHub,
 };
 
-
+// 为特定上游设置额外请求头（关键：Host 透传）
 const extraHeaders = {
-  // ["gcr-" + CUSTOM_DOMAIN] : {
-  //   "Host": "gcr.20220625.xyz"
-  // },
-  // ["ghcr-" + CUSTOM_DOMAIN] : {
-  //   "Host": "ghcr.20220625.xyz"
-  // },
-}
+  ["gcr-" + CUSTOM_DOMAIN]: { Host: "gcr.io" },
+  ["ghcr-" + CUSTOM_DOMAIN]: { Host: "ghcr.io" },
+  // 其他 registry 如需 Host 透传可在此添加
+};
 
 function routeByHosts(host) {
-  if (host in routes) {
-    return routes[host];
-  }
-  if (MODE == "debug") {
-    return TARGET_UPSTREAM;
-  }
-  return "";
+  return routes[host] || "";
 }
 
-async function handleRequest(request) {
-  const url = new URL(request.url);
-  if (url.pathname == "/") {
-    return Response.redirect(url.protocol + "//" + url.host + "/v2/", 301);
-  }
-  const upstream = routeByHosts(url.hostname);
-  if (upstream === "") {
-    return new Response(
-      JSON.stringify({
-        routes: routes,
-      }),
-      {
-        status: 404,
-      }
-    );
-  }
-  const upstreamExtraHeader = extraHeaders[url.hostname] || {};
-  console.log('upstreamExtraHeader', upstreamExtraHeader)
-  const isDockerHub = upstream == dockerHub;
-  const isGHCR = upstream.includes('gcr') || upstream.includes('ghcr');
-  const authorization = request.headers.get("Authorization");
-  if (url.pathname == "/v2/") {
-    const newUrl = new URL(upstream + "/v2/");
-    const headers = new Headers();
-    if (authorization) {
-      headers.set("Authorization", authorization);
-    }
-    // add upstream extra headers
-    for (const [key, value] of Object.entries(upstreamExtraHeader)) {
-      headers.set(key, value);
-    }
-    // check if need to authenticate
-    const resp = await fetch(newUrl.toString(), {
-      method: "GET",
-      headers: headers,
-      redirect: "follow",
-    });
-    if (resp.status === 401) {
-      return responseUnauthorized(url);
-    }
-    return resp;
-  }
-  // get token
-  if (url.pathname == "/v2/auth") {
-    const newUrl = new URL(upstream + "/v2/");
-    const headers = new Headers();
-    if (authorization) {
-      headers.set("Authorization", authorization);
-    }
-    // add upstream extra headers
-    for (const [key, value] of Object.entries(upstreamExtraHeader)) {
-      headers.set(key, value);
-    }
-    const resp = await fetch(newUrl.toString(), {
-      method: "GET",
-      headers: headers,
-      redirect: "follow",
-    });
-    if (resp.status !== 401) {
-      return resp;
-    }
-    const authenticateStr = resp.headers.get("WWW-Authenticate");
-    if (authenticateStr === null) {
-      return resp;
-    }
-    const wwwAuthenticate = parseAuthenticate(authenticateStr);
-    let scope = url.searchParams.get("scope");
-    // autocomplete repo part into scope for DockerHub library images
-    // Example: repository:busybox:pull => repository:library/busybox:pull
-    if (scope && isDockerHub) {
-      let scopeParts = scope.split(":");
-      if (scopeParts.length == 3 && !scopeParts[1].includes("/")) {
-        scopeParts[1] = "library/" + scopeParts[1];
-        scope = scopeParts.join(":");
-      }
-    }
-    return await fetchToken(wwwAuthenticate, scope, authorization);
-  }
-  // redirect for DockerHub library images
-  // Example: /v2/busybox/manifests/latest => /v2/library/busybox/manifests/latest
-  if (isDockerHub) {
-    const pathParts = url.pathname.split("/");
-    if (pathParts.length == 5) {
-      pathParts.splice(2, 0, "library");
-      const redirectUrl = new URL(url);
-      redirectUrl.pathname = pathParts.join("/");
-      return Response.redirect(redirectUrl, 301);
-    }
-  }
-  // foward requests
-  const newUrl = new URL(upstream + url.pathname);
-  // copy existing headers and add upstream extra headers
-  const newHeaders = new Headers(request.headers);
-  for (const [key, value] of Object.entries(upstreamExtraHeader)) {
-    newHeaders.set(key, value);
-  }
-  const newReq = new Request(newUrl, {
-    method: request.method,
-    headers: newHeaders,
-    // don't follow redirect to dockerhub blob upstream
-    redirect: isDockerHub || isGHCR ? "manual" : "follow",
+function responseUnauthorized(url) {
+  const realm = url.protocol === "https:" 
+    ? `https://${url.hostname}/v2/auth`
+    : `http://${url.host}/v2/auth`;
+  const headers = new Headers();
+  headers.set("WWW-Authenticate", `Bearer realm="${realm}",service="cloudflare-docker-proxy"`);
+  return new Response(JSON.stringify({ message: "UNAUTHORIZED" }), {
+    status: 401,
+    headers,
   });
-  const resp = await fetch(newReq);
-  if (resp.status == 401) {
-    return responseUnauthorized(url);
-  }
-  // handle dockerhub blob redirect manually
-  if (isDockerHub && resp.status == 307) {
-    const location = new URL(resp.headers.get("Location"));
-    const redirectResp = await fetch(location.toString(), {
-      method: "GET",
-      redirect: "follow",
-    });
-    return redirectResp;
-  }
-  return resp;
 }
 
 function parseAuthenticate(authenticateStr) {
-  // sample: Bearer realm="https://auth.ipv6.docker.com/token",service="registry.docker.io"
-  // match strings after =" and before "
+  // Bearer realm="...",service="..."
   const re = /(?<=\=")(?:\\.|[^"\\])*(?=")/g;
   const matches = authenticateStr.match(re);
-  if (matches == null || matches.length < 2) {
-    throw new Error(`invalid Www-Authenticate Header: ${authenticateStr}`);
+  if (!matches || matches.length < 2) {
+    throw new Error(`Invalid WWW-Authenticate: ${authenticateStr}`);
   }
-  return {
-    realm: matches[0],
-    service: matches[1],
-  };
+  return { realm: matches[0], service: matches[1] };
 }
 
 async function fetchToken(wwwAuthenticate, scope, authorization) {
   const url = new URL(wwwAuthenticate.realm);
-  if (wwwAuthenticate.service.length) {
-    url.searchParams.set("service", wwwAuthenticate.service);
-  }
-  if (scope) {
-    url.searchParams.set("scope", scope);
-  }
+  if (wwwAuthenticate.service) url.searchParams.set("service", wwwAuthenticate.service);
+  if (scope) url.searchParams.set("scope", scope);
   const headers = new Headers();
-  if (authorization) {
-    headers.set("Authorization", authorization);
-  }
-  return await fetch(url, { method: "GET", headers: headers });
+  if (authorization) headers.set("Authorization", authorization);
+  return fetch(url, { method: "GET", headers });
 }
 
-function responseUnauthorized(url) {
-  const headers = new Headers();
-  if (MODE == "debug") {
-    headers.set(
-      "Www-Authenticate",
-      `Bearer realm="http://${url.host}/v2/auth",service="cloudflare-docker-proxy"`
-    );
-  } else {
-    headers.set(
-      "Www-Authenticate",
-      `Bearer realm="https://${url.hostname}/v2/auth",service="cloudflare-docker-proxy"`
-    );
+async function handleRequest(request) {
+  const url = new URL(request.url);
+
+  // 根路径重定向到 /v2/
+  if (url.pathname === "/") {
+    return Response.redirect(url.origin + "/v2/", 301);
   }
-  return new Response(JSON.stringify({ message: "UNAUTHORIZED" }), {
-    status: 401,
-    headers: headers,
+
+  const host = url.hostname;
+  const upstream = routeByHosts(host);
+  if (!upstream) {
+    return new Response(JSON.stringify({ routes }), { status: 404 });
+  }
+
+  const upstreamExtraHeader = extraHeaders[host] || {};
+  const isDockerHub = upstream === dockerHub;
+  const isGHCR = host === "ghcr-" + CUSTOM_DOMAIN;
+  const isGCR = host === "gcr-" + CUSTOM_DOMAIN;
+  const isOCIRegistry = isDockerHub || isGHCR || isGCR;
+
+  const authorization = request.headers.get("Authorization");
+
+  // === /v2/ endpoint ===
+  if (url.pathname === "/v2/") {
+    const newUrl = new URL(upstream + "/v2/");
+    const headers = new Headers();
+    if (authorization) headers.set("Authorization", authorization);
+    for (const [k, v] of Object.entries(upstreamExtraHeader)) headers.set(k, v);
+
+    const resp = await fetch(newUrl, { method: "GET", headers, redirect: "follow" });
+    if (resp.status === 401) return responseUnauthorized(url);
+    return resp;
+  }
+
+  // === /v2/auth token endpoint ===
+  if (url.pathname === "/v2/auth") {
+    const newUrl = new URL(upstream + "/v2/");
+    const headers = new Headers();
+    if (authorization) headers.set("Authorization", authorization);
+    for (const [k, v] of Object.entries(upstreamExtraHeader)) headers.set(k, v);
+
+    const resp = await fetch(newUrl, { method: "GET", headers, redirect: "follow" });
+    if (resp.status !== 401) return resp;
+
+    const authHeader = resp.headers.get("WWW-Authenticate");
+    if (!authHeader) return resp;
+
+    try {
+      const wwwAuth = parseAuthenticate(authHeader);
+      let scope = url.searchParams.get("scope");
+
+      // Docker Hub library 补全
+      if (scope && isDockerHub) {
+        const parts = scope.split(":");
+        if (parts.length === 3 && !parts[1].includes("/")) {
+          parts[1] = "library/" + parts[1];
+          scope = parts.join(":");
+        }
+      }
+
+      return await fetchToken(wwwAuth, scope, authorization);
+    } catch (e) {
+      console.error("Auth parse error:", e);
+      return resp;
+    }
+  }
+
+  // === Docker Hub library 路径重写 ===
+  if (isDockerHub) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    if (pathParts.length === 3) { // e.g., /v2/busybox/manifests/latest → 4 parts including "v2"
+      // Actually: /v2/<name>/... → if <name> has no slash, prepend "library"
+      const name = pathParts[1];
+      if (name && !name.includes("/")) {
+        const newPath = `/v2/library/${url.pathname.slice(4)}`; // skip "/v2/"
+        return Response.redirect(new URL(newPath, url).href, 301);
+      }
+    }
+  }
+
+  // === 通用请求转发 ===
+  const newUrl = new URL(upstream + url.pathname + url.search);
+  const newHeaders = new Headers(request.headers);
+  for (const [k, v] of Object.entries(upstreamExtraHeader)) {
+    newHeaders.set(k, v);
+  }
+
+  const newReq = new Request(newUrl, {
+    method: request.method,
+    headers: newHeaders,
+    redirect: isOCIRegistry ? "manual" : "follow",
   });
+
+  const resp = await fetch(newReq);
+
+  if (resp.status === 401) {
+    return responseUnauthorized(url);
+  }
+
+  // === 关键：将 307/308 重定向原样返回给 Docker 客户端 ===
+  if (isOCIRegistry && (resp.status === 307 || resp.status === 308)) {
+    const location = resp.headers.get("Location");
+    if (location) {
+      // 确保 Location 是绝对 URL（某些 registry 返回相对路径）
+      const absoluteLocation = new URL(location, upstream).href;
+      const newResp = new Response(resp.body, resp);
+      newResp.headers.set("Location", absoluteLocation);
+      return newResp;
+    }
+  }
+
+  return resp;
 }
 
-/*
-addEventListener("fetch", (event) => {
-  event.passThroughOnException();
-  event.respondWith(handleRequest(event.request));
-});
-*/
 export default {
   async fetch(request, env, ctx) {
     ctx.passThroughOnException();
-    return handleRequest(request)
+    return handleRequest(request);
   },
 };
