@@ -17,33 +17,33 @@ We will provide updates as soon as more information becomes available.
 
 ## Deploy
 
-1. click the "Deploy With Workers" button
-2. follow the instructions to fork and deploy
-3. update routes as you requirement
+1. Fork this repository.
+2. Edit `wrangler.toml` and set `CUSTOM_DOMAIN` to your domain.
+3. Run `pnpm install` to install dependencies.
+4. Run `pnpm run deploy` to deploy to Cloudflare Workers.
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ciiiii/cloudflare-docker-proxy)
+## Configuration
 
-## Routes configuration tutorial
+You can configure the following environment variables in `wrangler.toml` or via the Cloudflare Dashboard:
 
-1. use cloudflare worker host: only support proxy one registry
-   ```javascript
-   const routes = {
-     "${workername}.${username}.workers.dev/": "https://registry-1.docker.io",
-   };
-   ```
-2. use custom domain: support proxy multiple registries route by host
-   - host your domain DNS on cloudflare
-   - add `A` record of xxx.example.com to `192.0.2.1`
-   - deploy this project to cloudflare workers
-   - add `xxx.example.com/*` to HTTP routes of workers
-   - add more records and modify the config as you need
-   ```javascript
-   const routes = {
-     "docker.libcuda.so": "https://registry-1.docker.io",
-     "quay.libcuda.so": "https://quay.io",
-     "gcr.libcuda.so": "https://k8s.gcr.io",
-     "k8s-gcr.libcuda.so": "https://k8s.gcr.io",
-     "ghcr.libcuda.so": "https://ghcr.io",
-   };
-   ```
+- `CUSTOM_DOMAIN`: Your custom domain (e.g., `example.com`).
+- `TARGET_UPSTREAM`: The default upstream registry (default: `https://registry-1.docker.io`).
+- `MODE`: The mode of operation (e.g., `production`, `staging`, `debug`).
 
+## Usage
+
+This proxy uses path-based routing. The default registry is Docker Hub.
+
+- **Docker Hub**: `https://your-domain.com/image` (e.g., `https://your-domain.com/busybox`)
+- **GitHub Container Registry**: `https://your-domain.com/ghcr.io/user/image`
+- **Google Container Registry**: `https://your-domain.com/gcr.io/project/image`
+- **Quay.io**: `https://your-domain.com/quay.io/user/image`
+- **Kubernetes Registry**: `https://your-domain.com/registry.k8s.io/image`
+
+## Development
+
+To run the worker locally:
+
+```bash
+pnpm run dev
+```
